@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<style>
+    html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0; 
+    }
+
+    canvas {
+        padding: 0;
+        margin: auto;
+        display: block; 
+        position: absolute;
+        top: 0;
+        bottom: 0; 
+        left: 0; 
+        right: 0; 
+    }
+</style>
+    <body id="outerBody">
+    <canvas id="chessCanvas" />
+    </body>
+    <script 
+        src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js">
+    </script>
+    <script>
+        // enums
+        const shapes = {
+            Castle: "Castle", 
+            Knight: "Knight", 
+            Bishop: "Bishop", 
+            Queen: "Queen", 
+            King: "King", 
+            Pawn: "Pawn"
+        };
+        const teams = {
+            White: "White", 
+            Black: "Black"
+        };
+        // taken from: supunkavinda.blog/js-detect-outside-click
+        function outside_click(event, notelem)	{
+            notelem = $(notelem); // jquerize (optional)
+            // check outside click for multiple elements
+            var clickedOut = true, i, len = notelem.length;
+            for (i = 0;i < len;i++)  {
+                if (event.target == notelem[i] || notelem[i].contains(event.target)) {
+                    clickedOut = false;
+                }
+            }
+            if (clickedOut) return true;
+            else return false;
+        }
+
+        function load_img(t, s) {
+            t = t.toLowerCase();
+            s = s.toLowerCase();
+            var deferred = $.Deferred();
+            var src = t + "-" + s + ".png"; 
+            images[src] = new Image();
+            images[src].onload = function() {
+                deferred.resolve();
+            }
+            images[src].src = src;
+        }
+        function get_img(p) {
+            const s = p.shape.toLowerCase();
+            const t = p.team.toLowerCase();
+            const src = t + "-" + s + ".png"; 
+            return images[src]; 
+        }
+        function toggle_team() {
+            if(player == teams.Black) {
+                player = teams.White;
+                body.style.backgroundColor = "white";
+            } else {
+                player = teams.Black;
+                body.style.backgroundColor = "black";
+            }
+            animate();
+        }
+        let board = [
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null]
+        ];
+        let images = {};
+        let player = teams.White;
+        let body = document.getElementById("outerBody");
+        let canvas = document.getElementById("chessCanvas");
+        let ctx = canvas.getContext("2d");
+        let side_len = 500; 
+        let grid_margin = 0;
+        let grid_len = Math.round((side_len - grid_margin*9)/8);
+        let grabbed = null;
+        window.onload = startup;
+
+        server = {
+            refresh: function () {
+                // we only need to refresh when its not our turn
+                $.getJSON("game", function(data) {
+                    board = data.board.pieces;
+                    requestAnimationFrame(animate);
+                });
+            },
+            move_piece: function(req) {
+                $.ajax({
+                    url: "/move_piece",
+                    type: "post",
+                    dataType: "json",
+                    contentType: "application/json",
+                    success: function(data) {
+                        board = data.board.pieces;
+                        requestAnimationFrame(animate); 
+                    },
+                    data: JSON.stringify(req)
+                });
+            }
+        }
+
+        function y_to_row(y) {
+            // tranform view
+            if(player == teams.Black) {
+                y = side_len - y
+            }
+            r = Math.floor((y - grid_margin)/(grid_len + grid_margin)); 
+            r = Math.max(r, 0);
+            r = Math.min(r, 7);
+            return r; 
+        }
+
+        function row_to_y(r) { 
+            // tranform view
+            if(player == teams.Black) { r = 7 - r; }
+            return r*(grid_len + grid_margin) + grid_margin; 
+        }
+
+        function x_to_col(x) {
+            if(player == teams.Black) { x = side_len - x; }
+            c = Math.floor((x - grid_margin)/(grid_len + grid_margin)); 
+            c = Math.max(c, 0); 
+            c = Math.min(c, 7); 
+            return c;
+        }
+
+        function col_to_x(c) {
+            if(player == teams.Black) { c = 7 - c; }
+            return c*(grid_len + grid_margin) + grid_margin;
+        }
+
+        function on_grab(e) {
+            let rect = canvas.getBoundingClientRect();
+            let x = e.clientX - rect.left;
+            let y = e.clientY - rect.top; 
+            const r = y_to_row(y);
+            const c = x_to_col(x);
+            if(board[r][c] != null) {
+                grabbed = {
+                    x: x - Math.floor(grid_len/2),
+                    y: y - Math.floor(grid_len/2),
+                    r: r,
+                    c: c,
+                    piece: board[r][c]
+                }
+                board[r][c] = null; 
+                animate();
+            }
+        }
+
+        function on_release(e) {
+            let rect = canvas.getBoundingClientRect();
+            let x = e.clientX - rect.left;
+            let y = e.clientY - rect.top; 
+            if(grabbed != null) {
+                const o = {
+                    r: grabbed.r,
+                    c: grabbed.c
+                }
+                const n = {
+                    r: y_to_row(y),
+                    c: x_to_col(x)
+                }
+                grabbed = null;
+                server.move_piece({
+                    old: o,
+                    new: n
+                });
+            }
+        }
+
+        function startup() {
+            canvas.width = side_len;
+            canvas.height = side_len;
+            ctx.imageSmoothingEnabled = false; 
+            // TODO: fix mouseup/down/leave situation
+            // add event listeners
+            body.addEventListener("mousedown", function(e) {
+                if(outside_click(e, canvas)){
+                    toggle_team();
+                }
+            });
+            canvas.addEventListener("mousedown", on_grab);
+            canvas.addEventListener("mouseup", on_release);
+            canvas.addEventListener("mouseleave", function(e) {
+                grabbed = null
+            });
+            canvas.addEventListener("mousemove", on_mouse_move);
+            // load images and then draw first animation 
+            var loaders = []
+            for(const s of Object.values(shapes)) {
+                for(const t of Object.values(teams)) {
+                    loaders.push(load_img(t, s));
+                }
+            }
+            $.when.apply(null, loaders).done(function() {
+                server.refresh(); 
+                animate(); 
+            })
+            //animate();
+            // set up intervals
+        }
+
+
+        function on_mouse_move(e) {
+            if(grabbed != null) {
+                let rect = canvas.getBoundingClientRect();
+                let x = e.clientX - rect.left;
+                let y = e.clientY - rect.top; 
+                let r = y_to_row(y);
+                let c = x_to_col(x);
+                grabbed.x = x - Math.floor(grid_len/2);
+                grabbed.y = y - Math.floor(grid_len/2);
+                requestAnimationFrame(animate); 
+            }
+        }
+
+        function animate() {
+            let tile_color = "peru"
+            ctx.clearRect(0, 0, side_len, side_len); // clears
+            // draw board
+            for(let r = 0; r < 8; ++r) {
+                for(let c = 0; c < 8; ++c) {
+                    if((r + c)%2 == 0) {
+                        tile_color = "saddlebrown";
+                    } else {
+                        tile_color = "peru";
+                    }
+                    const x = col_to_x(c);
+                    const y = row_to_y(r);
+                    ctx.beginPath();
+                    ctx.rect(x, y, grid_len, grid_len);
+                    ctx.fillStyle = tile_color;
+                    ctx.fill();
+                    ctx.closePath();
+                    const piece = board[r][c]; 
+                    if(piece != null) {
+                        if(grabbed == null 
+                            || grabbed.r != r || grabbed.c != c) {
+                                ctx.drawImage(
+                                    get_img(piece),
+                                    x, y,
+                                    grid_len, grid_len); 
+                        }
+                    }
+                    if(grabbed != null) {
+                        ctx.drawImage(
+                            get_img(grabbed.piece),
+                            grabbed.x, grabbed.y,
+                            grid_len*1.05, grid_len*1.05);
+                    }
+                }
+            }
+        }
+        setInterval(server.refresh, 250);
+        
+    </script>
+</html>
