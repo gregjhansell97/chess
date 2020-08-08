@@ -15,7 +15,7 @@ struct MovePieceJSON {
 
 fn main() {
     let g = Arc::new(Mutex::new(chess::Game::new()));
-    rouille::start_server("0.0.0.0:8080", move |request| {
+    rouille::start_server("0.0.0.0:80", move |request| {
         let response = rouille::match_assets(&request, "public");
         if response.is_success() {
             return response;
